@@ -34,14 +34,12 @@ using System.IO.Filesystem.Ntfs;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
+using NTFS_Defrag_and_Similar_Files_Unifier;
 
 namespace NtfsReaderSample
 {
     class Program
     {
-        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
-        static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
-
         static void AnalyzeSimilarity(IEnumerable<INode> nodes, DriveInfo driveInfo)
         {
             IDictionary<UInt64, List<INode>> sizeAggregate = Algorithms.AggregateBySize(nodes, 10 * 1024 * 1024);
@@ -50,18 +48,14 @@ namespace NtfsReaderSample
             sizes.Sort();
             sizes.Reverse();    //descending order
 
-            string targetFile = Path.Combine(driveInfo.Name, "similarfiles.txt");
-            using (StreamWriter fs = new StreamWriter(targetFile))
+            foreach (UInt64 size in sizes)
             {
-              
-                foreach (UInt64 size in sizes)
+                List<INode> similarNodes = sizeAggregate[size];
+
+                if (similarNodes.Count > 1) //this part ensures that there are 2 or more similar files that have been found.
                 {
-                    List<INode> similarNodes = sizeAggregate[size];
 
-                    if (similarNodes.Count <= 1) //this part ensures that there are 2 or more similar files that have been found.
-                        continue;
-
-                    for (int i = 0; i < similarNodes.Count; i++)
+                    for (int i = 0; i < sizeAggregate[size].Count - 1; i++)
                     {
                         Console.WriteLine("-----------------------------------------");
                         Console.WriteLine(string.Format(
@@ -73,65 +67,22 @@ namespace NtfsReaderSample
                                similarNodes[i].FullName
                            ));
 
-                        Console.WriteLine(string.Format(
-                               "Index {0}, {1}, {2}, size {3}, path {4}",
-                               similarNodes[i + 1].NodeIndex,
-                               (similarNodes[i + 1].Attributes & Attributes.Directory) != 0 ? "Dir" : "File",
-                               similarNodes[i + 1].Name,
-                               similarNodes[i + 1].Size,
-                               similarNodes[i + 1].FullName
-                           ));
-
                         Console.WriteLine("-----------------------------------------");
-                        Console.WriteLine("Look at the two files above, would you like to create a hard link instead of keeping both files around?");
-
+                        Console.WriteLine("Look at the files above, would you like to create a hard link instead of keeping multiple files around?");
                         var choice = Console.ReadLine();
                         switch (choice)
                         {
                             case "y":
-                                CreateHardLink(similarNodes[i].Name, similarNodes[i + 1].ToString(), (nint)similarNodes[i + 1].Attributes);
+                                HardLinkCreator.CreateHardLink(similarNodes[i].Name, similarNodes[i + 1].ToString(), (nint)similarNodes[i + 1].Attributes);
                                 break;
 
                             default:
                                 break;
                         }
                     }
-
-                    //foreach (INode node in similarNodes)
-                    //{
-                    //    Console.WriteLine(string.Format(
-                    //            "Index {0}, {1}, {2}, size {3}, path {4}",
-                    //            node.NodeIndex,
-                    //            (node.Attributes & Attributes.Directory) != 0 ? "Dir" : "File",
-                    //            node.Name,
-                    //            node.Size,
-                    //            node.FullName
-                    //        ));
-                    //}
-
-                    fs.WriteLine("-----------------------------------------");
-                    fs.WriteLine("SIZE: {0}", size);
-                    fs.WriteLine("-----------------------------------------");
-
-                    foreach (INode node in similarNodes)
-                        fs.WriteLine(
-                            string.Format(
-                                "Index {0}, {1}, {2}, size {3}, path {4}",
-                                node.NodeIndex,
-                                (node.Attributes & Attributes.Directory) != 0 ? "Dir" : "File",
-                                node.Name,
-                                node.Size,
-                                node.FullName
-                            )
-                         );
                 }
             }
-
-            Console.WriteLine("File similarities report has been saved to {0}", targetFile);
         }
-
-
-
 
         static void AnalyzeFragmentation(IEnumerable<INode> nodes, DriveInfo driveInfo)
         {
